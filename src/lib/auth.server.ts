@@ -42,6 +42,7 @@ const getAuth = createServerOnlyFn(() => {
     baseURL: new URL(request.url).origin,
     trustedOrigins: [
       "https://youngboy-shop.fredrickowoeye8.workers.dev",
+      "https://youngboy-shop.vercel.app",
       "https://nbayoungboy-addmin.vercel.app",
       "http://127.0.0.1:8787",
       "http://localhost:8787",

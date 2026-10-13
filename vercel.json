@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "https://youngboy-shop.fredrickowoeye8.workers.dev/$1"
+    }
+  ]
+}

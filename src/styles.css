@@ -339,6 +339,27 @@
 .admin-table th,.admin-table td { padding:13px 10px; border-top:1px solid #eee; white-space:nowrap }
 .admin-table th { color:#666; font-size:10px; letter-spacing:.07em; text-transform:uppercase }
 .admin-footer { padding:10px 0 30px; color:#777; font-size:11px }
+.admin-copy { margin:0 0 18px; color:#555; font-size:13px; line-height:1.5 }
+.admin-product-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px }
+.admin-product-form > label { display:grid; gap:7px; font-size:12px; font-weight:700 }
+.admin-product-form input { width:100%; min-height:42px; border:1px solid #bbb; background:#fff; padding:0 12px; font:inherit; font-weight:400 }
+.product-image-picker { grid-column:1/-1; border:0; padding:0; margin:2px 0 0; min-width:0 }
+.product-image-picker legend { margin-bottom:9px; font-size:12px; font-weight:700 }
+.product-image-options { display:flex; flex-wrap:wrap; gap:8px }
+.product-image-options button { width:70px; height:82px; padding:3px; border:1px solid #ddd; background:#fff; cursor:pointer }
+.product-image-options button.selected { border:2px solid #111 }
+.product-image-options img { width:100%; height:100%; object-fit:cover }
+.admin-product-submit { grid-column:1/-1; min-height:44px; border:0; background:#111; color:#fff; font-weight:700; letter-spacing:.04em; cursor:pointer }
+.admin-product-submit:disabled { opacity:.6; cursor:wait }
+.managed-product-list { border-top:1px solid #e5e5e5 }
+.managed-product { display:grid; grid-template-columns:72px minmax(0,1fr) auto; gap:14px; align-items:center; padding:12px 0; border-bottom:1px solid #e5e5e5 }
+.managed-product > img { width:72px; height:82px; object-fit:cover; background:#f2f2f2 }
+.managed-product > div { display:grid; gap:5px; min-width:0 }
+.managed-product strong { font-size:13px; overflow-wrap:anywhere }
+.managed-product span { color:#666; font-size:11px }
+.managed-product.hidden { opacity:.68 }
+.managed-product > button { min-height:38px; padding:0 12px; cursor:pointer }
+.managed-product > button:disabled { opacity:.6; cursor:wait }
 @media(max-width:900px) { .admin-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)) } }
 @media(max-width:600px) {
   .admin-page { padding:22px 14px }
@@ -360,4 +381,9 @@
   .admin-order-tools { flex-direction:column }
   .admin-order-tools input,.admin-order-tools select { width:100% }
   .admin-table th,.admin-table td { padding:12px 8px }
+  .admin-product-form { grid-template-columns:1fr }
+  .product-image-picker,.admin-product-submit { grid-column:1 }
+  .managed-product { grid-template-columns:54px minmax(0,1fr) auto; gap:9px }
+  .managed-product > img { width:54px; height:66px }
+  .managed-product > button { min-height:36px; padding:0 8px; font-size:11px }
 }

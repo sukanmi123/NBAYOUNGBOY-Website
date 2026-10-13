@@ -24,5 +24,5 @@ export type ShippingDetails = {
 export type PaymentSetup = {
   databaseConfigured: boolean;
   venmoUsername: string | null;
-  chimeDestination: string;
+  chimeDestination: string | null;
 };

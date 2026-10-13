@@ -69,6 +69,7 @@ const chimePaymentReportSchema = z.object({
 
 const giftCardPaymentReportSchema = chimePaymentReportSchema;
 const orderStatusInputSchema = chimePaymentReportSchema;
+const customProductIdOffset = 1_000_000;
 
 function normalizePaymentHandle(value: string | undefined, prefix: string): string | null {
   const trimmed = value?.trim();
@@ -96,15 +97,34 @@ function cents(value: number): number {
   return Math.round(value * 100);
 }
 
-function isValidSize(product: (typeof products)[number], size: string): boolean {
+function isValidSize(product: { category: string }, size: string): boolean {
   if (["Music", "Accessories"].includes(product.category)) return size === "ONE SIZE";
   if (product.category === "Footwear") return ["7", "8", "9", "10", "11", "12"].includes(size);
   return ["S", "M", "L", "XL", "XXL"].includes(size);
 }
 
-function getValidatedItems(items: z.infer<typeof orderInputSchema>["items"]) {
-  const prepared = items.map((item) => {
-    const product = products.find((candidate) => candidate.id === item.productId);
+async function getValidatedItems(items: z.infer<typeof orderInputSchema>["items"], database: D1Database) {
+  const prepared = await Promise.all(items.map(async (item) => {
+    const staticProduct = products.find((candidate) => candidate.id === item.productId);
+    if (staticProduct) {
+      const hidden = await database.prepare("SELECT product_id FROM hidden_products WHERE product_id = ?")
+        .bind(staticProduct.id)
+        .first<{ product_id: number }>();
+      if (hidden) throw new Error("One or more items in your bag are no longer available.");
+    }
+    const customProduct = staticProduct || item.productId <= customProductIdOffset
+      ? null
+      : await database.prepare(
+          `SELECT id, name, price_cents AS priceCents, category
+           FROM admin_products WHERE id = ?`,
+        ).bind(item.productId - customProductIdOffset)
+        .first<{ id: number; name: string; priceCents: number; category: string }>();
+    const product = staticProduct ?? (customProduct ? {
+      id: customProductIdOffset + customProduct.id,
+      name: customProduct.name,
+      price: customProduct.priceCents / 100,
+      category: customProduct.category,
+    } : null);
     if (!product || !isValidSize(product, item.size)) {
       throw new Error("One or more items in your bag are no longer available.");
     }
@@ -115,7 +135,7 @@ function getValidatedItems(items: z.infer<typeof orderInputSchema>["items"]) {
       size: item.size,
       quantity: item.quantity,
     };
-  });
+  }));
   const totalCents = prepared.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   if (!Number.isSafeInteger(totalCents) || totalCents <= 0) {
     throw new Error("The order total is invalid.");
@@ -148,8 +168,8 @@ export const createChimePaymentOrder = createServerFn({ method: "POST" })
   .validator((input: unknown) => chimeOrderInputSchema.parse(input))
   .handler(async ({ data }) => {
     await requireSignedInUser();
-    const { items, totalCents } = getValidatedItems(data.items);
     const database = getDatabase();
+    const { items, totalCents } = await getValidatedItems(data.items, database);
     const orderId = crypto.randomUUID();
     const orderNumber = createOrderNumber();
     const confirmationToken = crypto.randomUUID();
@@ -236,8 +256,8 @@ export const createGiftCardPaymentOrder = createServerFn({ method: "POST" })
   .validator((input: unknown) => chimeOrderInputSchema.parse(input))
   .handler(async ({ data }) => {
     await requireSignedInUser();
-    const { items, totalCents } = getValidatedItems(data.items);
     const database = getDatabase();
+    const { items, totalCents } = await getValidatedItems(data.items, database);
     const orderId = crypto.randomUUID();
     const orderNumber = createOrderNumber();
     const confirmationToken = crypto.randomUUID();
@@ -343,13 +363,13 @@ export const submitCheckoutOrder = createServerFn({ method: "POST" })
   .validator((input: unknown) => orderInputSchema.parse(input))
   .handler(async ({ data }) => {
     await requireSignedInUser();
-    const { items, totalCents } = getValidatedItems(data.items);
+    const database = getDatabase();
+    const { items, totalCents } = await getValidatedItems(data.items, database);
     const orderId = crypto.randomUUID();
     const orderNumber = createOrderNumber();
     const confirmationToken = crypto.randomUUID();
     const confirmationTokenHash = await hashGiftCardCode(confirmationToken);
     const env = getEnvironment();
-    const database = getDatabase();
 
     if (data.paymentMethod === "venmo") {
       if (!normalizePaymentHandle(env.VENMO_USERNAME || VENMO_USERNAME, "@")) {
@@ -407,5 +427,5 @@ export const submitCheckoutOrder = createServerFn({ method: "POST" })
         status: "pending_verification" as const,
       };
     }
-
+    throw new Error("Unsupported payment method.");
   });

@@ -16,11 +16,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { articles, artists, images, products, type Product } from "@/lib/shop-data";
+import { articles, artists, images, type Product } from "@/lib/shop-data";
 import logo from "@/assets/complex-logo.svg.asset.json";
 import aboutYoungBoyImage from "@/assets/about-youngboy.jpg";
 import { ShopNavigation } from "@/components/shop-navigation";
-import { getSignedInUser } from "@/lib/auth.server";
+import { getCatalogProducts, getSignedInUser } from "@/lib/auth.server";
 import {
   createChimePaymentOrder,
   createGiftCardPaymentOrder,
@@ -44,6 +44,7 @@ export const Route = createFileRoute("/")({
   beforeLoad: async () => {
     if (!(await getSignedInUser())) throw redirect({ to: "/login" });
   },
+  loader: async () => ({ customProducts: await getCatalogProducts() }),
   head: () => ({
     meta: [
       { title: "YoungBoy Never Broke Again | Complex Shop" },
@@ -56,7 +57,7 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "Discover 14 YoungBoy Never Broke Again products, including Ed Hardy apparel and music releases.",
+          "Shop the latest YoungBoy Never Broke Again clothing, music, and accessories.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -70,6 +71,8 @@ const latestProductIds = [11, 12, 13, 14, 1, 5, 3, 4, 2, 7, 6];
 const artistDescription = `Hailing from Baton Rouge, Louisiana, YoungBoy Never Broke Again built his career through an unusually prolific run of mixtapes and albums. Born Kentrell DeSean Gaulden, he developed a sound that brings Southern rap together with melodic vocals and direct, personal storytelling. Early projects such as 38 Baby and AI YoungBoy introduced the urgency and openness that would become central to his music, while Until Death Call My Name brought that style to an even wider audience.\n\nHis songs shift between reflection and confrontation, drawing on family, relationships, ambition, loss, and the realities of life in Baton Rouge. Rather than settling into one sound, he moves between spare, intimate performances and forceful records built around memorable hooks. Projects including Top, Sincerely, Kentrell, The Last Slimeto, and I Rest My Case trace that development and show the breadth of his catalog.\n\nKnown for his distinctive melodic delivery and unfiltered point of view, YoungBoy has earned a devoted audience across generations of rap listeners. His emotionally candid approach has helped shape the sound of contemporary hip-hop, influencing artists who bring vulnerability and melody into their own work. With a body of music defined by consistency, intensity, and a distinctly Southern perspective, he remains a singular voice in modern rap.`;
 
 function Shop() {
+  const { customProducts } = Route.useLoaderData();
+  const catalogProducts: Product[] = customProducts;
   const [query, setQuery] = useState("");
   const [newsletterMessage, setNewsletterMessage] = useState("");
   const [sort, setSort] = useState("Trending");
@@ -161,10 +164,9 @@ function Shop() {
       setCopyPaymentError("Copy failed. Select the payment tag and copy it manually.");
     }
   };
-  const visible = products
+  const visible = catalogProducts
     .filter(
       (product) =>
-        product.category === "Music" &&
         (!query ||
           `${product.name} ${product.brand} YoungBoy Never Broke Again`
             .toLowerCase()
@@ -488,7 +490,7 @@ function Shop() {
           </div>
           <div className="latest-product-grid">
             {latestProductIds
-              .map((id) => products.find((product) => product.id === id))
+              .map((id) => catalogProducts.find((product) => product.id === id))
               .filter((product): product is Product => Boolean(product))
               .map((product) => (
                 <article className="product-card" key={product.id}>
@@ -595,7 +597,7 @@ function Shop() {
               <div className="filter-group">
                 <h3>Color</h3>
                 <div className="filter-options">
-                  {["BLACK", "BROWN", "GREY", "MULTI"].map((color) => (
+                  {[...new Set(catalogProducts.map((product) => product.color.toUpperCase()))].sort().map((color) => (
                     <label key={color}>
                       <input
                         type="checkbox"
@@ -693,7 +695,6 @@ function Shop() {
                 variant="shopOutline"
                 onClick={() => {
                   setQuery("");
-                  setCategories([]);
                   setColors([]);
                   setSavedOnly(false);
                 }}

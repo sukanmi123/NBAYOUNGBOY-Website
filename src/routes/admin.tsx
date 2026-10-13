@@ -1,7 +1,8 @@
 import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { useMemo, useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
-import { getAdminDashboard, getSignedInUser, updateAdminCredentials, updateAdminOrder } from "@/lib/auth.server";
+import { createAdminProduct, deleteAdminProduct, getAdminDashboard, getAdminProducts, getSignedInUser, restoreAdminProduct, updateAdminCredentials, updateAdminOrder } from "@/lib/auth.server";
+import { images } from "@/lib/shop-data";
 
 export const Route = createFileRoute("/admin")({
   beforeLoad: async () => {
@@ -10,14 +11,14 @@ export const Route = createFileRoute("/admin")({
     if (user.role !== "admin") throw redirect({ to: "/" });
   },
   loader: async () => {
-    const [dashboard, adminUser] = await Promise.all([getAdminDashboard(), getSignedInUser()]);
+    const [dashboard, adminUser, products] = await Promise.all([getAdminDashboard(), getSignedInUser(), getAdminProducts()]);
     if (!adminUser || adminUser.role !== "admin") throw redirect({ to: "/admin-login" });
-    return { ...dashboard, adminUser };
+    return { ...dashboard, adminUser, products };
   },
   component: AdminPage,
 });
 
-type Section = "overview" | "orders" | "customers" | "account";
+type Section = "overview" | "orders" | "products" | "customers" | "account";
 type Order = Awaited<ReturnType<typeof getAdminDashboard>>["orders"][number];
 const currency = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const date = (value: string) => new Date(value).toLocaleString();
@@ -57,7 +58,7 @@ function AdminPage() {
       <div><p className="account-eyebrow">YB SHOP · ADMINISTRATION</p><h1>Shop dashboard</h1><p className="admin-subtitle">Orders, customer accounts, and payment review.</p></div>
       <div className="admin-actions"><Link to="/">Back to shop</Link><button onClick={() => void signOut()}>Sign out</button></div>
     </header>
-    <nav className="admin-tabs" aria-label="Admin sections">{(["overview", "orders", "customers", "account"] as Section[]).map((item) => <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>{title(item)}{item === "orders" && data.stats.reviewCount > 0 && <span>{data.stats.reviewCount}</span>}</button>)}</nav>
+    <nav className="admin-tabs" aria-label="Admin sections">{(["overview", "orders", "products", "customers", "account"] as Section[]).map((item) => <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>{title(item)}{item === "orders" && data.stats.reviewCount > 0 && <span>{data.stats.reviewCount}</span>}</button>)}</nav>
     {message && <p className="admin-message" role="status">{message}</p>}
 
     {section === "overview" && <>
@@ -81,12 +82,85 @@ function AdminPage() {
       {visibleOrders.length ? <div className="admin-order-list">{visibleOrders.map((order) => <OrderRow key={order.id} order={order} onAction={orderAction} busy={busy === order.id} />)}</div> : <Empty text="No orders match this filter." />}
     </section>}
 
+    {section === "products" && <ProductManager products={data.products} />}
+
     {section === "customers" && <section className="admin-panel"><div className="admin-panel-heading"><div><p className="account-eyebrow">CUSTOMER ACCOUNTS</p><h2>{data.stats.totalCustomers} registered</h2></div><span className="admin-muted">Showing latest {data.customers.length}</span></div>
       {data.customers.length ? <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Customer</th><th>Email</th><th>Joined</th></tr></thead><tbody>{data.customers.map((customer) => <tr key={customer.id}><td>{customer.name || "—"}</td><td>{customer.email}</td><td>{date(customer.createdAt)}</td></tr>)}</tbody></table></div> : <Empty text="No customer accounts yet." />}
     </section>}
     {section === "account" && <AdminAccountSettings currentUsername={data.adminUser.username} />}
     <footer className="admin-footer">Dashboard data refreshes from the shop database. Order history displays the latest 100 orders.</footer>
   </main>;
+}
+
+type ManagedProduct = Awaited<ReturnType<typeof getAdminProducts>>[number];
+const clothingImages = [31, 32, 33, 34, 35, 36, 37, 38];
+
+function ProductManager({ products }: { products: ManagedProduct[] }) {
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [color, setColor] = useState("");
+  const [brand, setBrand] = useState("");
+  const [imageIndex, setImageIndex] = useState(31);
+  const [secondImageIndex, setSecondImageIndex] = useState(32);
+  const [pending, setPending] = useState(false);
+  const [removing, setRemoving] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function addProduct(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setPending(true); setError(""); setMessage("");
+    try {
+      await createAdminProduct({ data: { name, price: Number(price), color, brand, imageIndex, secondImageIndex } });
+      setName(""); setPrice(""); setColor(""); setBrand("");
+      setMessage("Clothing item added to the shop.");
+      await router.invalidate();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not add this clothing item."); }
+    finally { setPending(false); }
+  }
+
+  async function removeProduct(product: ManagedProduct) {
+    if (product.isHidden || !window.confirm(`Remove “${product.name}” from the shop?`)) return;
+    setRemoving(product.id); setError(""); setMessage("");
+    try {
+      await deleteAdminProduct({ data: { productId: product.id } });
+      setMessage(`${product.name} removed from the shop.`);
+      await router.invalidate();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not remove this item."); }
+    finally { setRemoving(null); }
+  }
+
+  async function restoreProduct(product: ManagedProduct) {
+    setRemoving(product.id); setError(""); setMessage("");
+    try {
+      await restoreAdminProduct({ data: { productId: product.id } });
+      setMessage(`${product.name} restored to the shop.`);
+      await router.invalidate();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore this clothing item."); }
+    finally { setRemoving(null); }
+  }
+
+  const imagePicker = (label: string, selected: number, onSelect: (value: number) => void) => <fieldset className="product-image-picker"><legend>{label}</legend><div className="product-image-options">{clothingImages.map((index) => <button type="button" key={index} className={selected === index ? "selected" : ""} aria-label={`${label}: clothing image ${index - 30}`} aria-pressed={selected === index} onClick={() => onSelect(index)}><img src={images[index]} alt={`Clothing option ${index - 30}`} /></button>)}</div></fieldset>;
+
+  return <>
+    <section className="admin-panel"><div className="admin-panel-heading"><div><p className="account-eyebrow">SHOP CATALOG</p><h2>Add clothing</h2></div></div>
+      <p className="admin-copy">New items appear in the shop catalog after saving. Choose front and alternate photos from the clothing image gallery.</p>
+      <form className="admin-product-form" onSubmit={addProduct}>
+        <label>Product name<input required minLength={2} maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label>Price (USD)<input required type="number" min="0.01" max="20000" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} /></label>
+        <label>Color<input required maxLength={40} placeholder="e.g. Black" value={color} onChange={(event) => setColor(event.target.value)} /></label>
+        <label>Brand (optional)<input maxLength={60} value={brand} onChange={(event) => setBrand(event.target.value)} /></label>
+        {imagePicker("Front image", imageIndex, setImageIndex)}
+        {imagePicker("Alternate image", secondImageIndex, setSecondImageIndex)}
+        {error && <p className="account-error" role="alert">{error}</p>}
+        {message && <p className="admin-message" role="status">{message}</p>}
+        <button className="admin-product-submit" type="submit" disabled={pending}>{pending ? "ADDING…" : "ADD CLOTHING TO SHOP"}</button>
+      </form>
+    </section>
+    <section className="admin-panel"><div className="admin-panel-heading"><div><p className="account-eyebrow">SHOP CLOTHING</p><h2>{products.length} clothing {products.length === 1 ? "item" : "items"}</h2></div><button className="admin-refresh" onClick={() => void router.invalidate()}>Refresh</button></div>
+      {products.length ? <div className="managed-product-list">{products.map((product) => <article className={`managed-product${product.isHidden ? " hidden" : ""}`} key={product.id}><img src={images[product.image]} alt="" /><div><strong>{product.name}</strong><span>{product.isCustom ? "Added by you" : "Store catalog"}{product.isHidden ? " · Hidden from shop" : ""}</span><span>{product.color}{product.brand ? ` · ${product.brand}` : ""} · {currency(Math.round(product.price * 100))}</span></div>{product.isHidden ? <button type="button" className="admin-refresh" disabled={removing === product.id} onClick={() => void restoreProduct(product)}>{removing === product.id ? "Restoring…" : "Restore"}</button> : <button type="button" className="admin-cancel-button" disabled={removing === product.id} onClick={() => void removeProduct(product)}>{removing === product.id ? "Removing…" : "Remove"}</button>}</article>)}</div> : <Empty text="No clothing items are available." />}
+    </section>
+  </>;
 }
 
 function AdminAccountSettings({ currentUsername }: { currentUsername: string }) {

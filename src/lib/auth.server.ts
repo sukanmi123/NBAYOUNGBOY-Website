@@ -4,12 +4,13 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { getRequest, getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
+import { products as builtInProducts } from "@/lib/shop-data";
 
 interface AdminStatement {
   bind(...values: (string | number | null)[]): AdminStatement;
   first<T>(): Promise<T | null>;
   all<T>(): Promise<{ results: T[] }>;
-  run(): Promise<{ meta?: { changes?: number } }>;
+  run(): Promise<{ meta?: { changes?: number; last_row_id?: number } }>;
 }
 
 interface AdminDatabase {
@@ -199,6 +200,128 @@ export const getAdminDashboard = createServerFn({ method: "GET" }).handler(async
       events: events.results,
     };
 });
+
+const customProductIdOffset = 1_000_000;
+const customProductInput = z.object({
+  name: z.string().trim().min(2).max(100),
+  price: z.number().finite().positive().max(20000),
+  color: z.string().trim().min(2).max(40),
+  brand: z.string().trim().max(60).default(""),
+  imageIndex: z.number().int().min(0).max(100),
+  secondImageIndex: z.number().int().min(0).max(100),
+});
+
+type CustomProductRow = {
+  id: number;
+  name: string;
+  slug: string;
+  priceCents: number;
+  category: string;
+  color: string;
+  image: number;
+  secondImage: number;
+  brand: string;
+};
+
+async function readCustomProducts(database: AdminDatabase) {
+  const result = await database.prepare(
+    `SELECT id, name, slug, price_cents AS priceCents, category, color,
+       image_index AS image, second_image_index AS secondImage, brand
+     FROM admin_products ORDER BY created_at DESC, id DESC`,
+  ).all<CustomProductRow>();
+  return result.results.map((product) => ({
+    ...product,
+    id: customProductIdOffset + product.id,
+    price: product.priceCents / 100,
+  }));
+}
+
+export const getCatalogProducts = createServerFn({ method: "GET" }).handler(async () => {
+  const database = getEnvironment().PAYMENTS_DB;
+  if (!database) return [];
+  const hiddenRows = await database.prepare("SELECT product_id FROM hidden_products").all<{ product_id: number }>();
+  const hiddenIds = new Set(hiddenRows.results.map((row: { product_id: number }) => row.product_id));
+  const customProducts = await readCustomProducts(database);
+  return [
+    ...builtInProducts.filter((product) => !hiddenIds.has(product.id)),
+    ...customProducts,
+  ];
+});
+
+export const getAdminProducts = createServerFn({ method: "GET" }).handler(async () => {
+  await requireAdmin();
+  const database = getEnvironment().PAYMENTS_DB;
+  if (!database) throw new Error("Product storage is not configured.");
+  const hiddenRows = await database.prepare("SELECT product_id FROM hidden_products").all<{ product_id: number }>();
+  const hiddenIds = new Set(hiddenRows.results.map((row: { product_id: number }) => row.product_id));
+  const customProducts = await readCustomProducts(database);
+  return [
+    ...builtInProducts.filter((product) => product.category === "Clothing").map((product) => ({
+      ...product,
+      priceCents: Math.round(product.price * 100),
+      isCustom: false,
+      isHidden: hiddenIds.has(product.id),
+    })),
+    ...customProducts.map((product) => ({ ...product, isCustom: true, isHidden: false })),
+  ];
+});
+
+export const createAdminProduct = createServerFn({ method: "POST" })
+  .validator((input: unknown) => customProductInput.parse(input))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    const database = getEnvironment().PAYMENTS_DB;
+    if (!database) throw new Error("Product storage is not configured.");
+    const baseSlug = data.name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const slug = `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`;
+    const result = await database.prepare(
+      `INSERT INTO admin_products
+        (name, slug, price_cents, category, color, brand, image_index, second_image_index)
+       VALUES (?, ?, ?, 'Clothing', ?, ?, ?, ?)`,
+    ).bind(
+      data.name,
+      slug,
+      Math.round(data.price * 100),
+      data.color,
+      data.brand,
+      data.imageIndex,
+      data.secondImageIndex,
+    ).run();
+    if (!result.meta?.last_row_id) throw new Error("Could not save the clothing item.");
+    return { success: true as const, id: customProductIdOffset + result.meta.last_row_id };
+  });
+
+export const deleteAdminProduct = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ productId: z.number().int().positive() }).parse(input))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    const database = getEnvironment().PAYMENTS_DB;
+    if (!database) throw new Error("Product storage is not configured.");
+    if (data.productId >= customProductIdOffset) {
+      const result = await database.prepare("DELETE FROM admin_products WHERE id = ?")
+        .bind(data.productId - customProductIdOffset)
+        .run();
+      if (result.meta?.changes !== 1) throw new Error("That clothing item was not found. Refresh the list and try again.");
+    } else {
+      if (!builtInProducts.some((product) => product.id === data.productId && product.category === "Clothing")) {
+        throw new Error("That clothing item was not found.");
+      }
+      await database.prepare("INSERT OR IGNORE INTO hidden_products (product_id) VALUES (?)")
+        .bind(data.productId)
+        .run();
+    }
+    return { success: true as const };
+  });
+
+export const restoreAdminProduct = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ productId: z.number().int().positive().max(customProductIdOffset - 1) }).parse(input))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    const database = getEnvironment().PAYMENTS_DB;
+    if (!database) throw new Error("Product storage is not configured.");
+    await database.prepare("DELETE FROM hidden_products WHERE product_id = ?").bind(data.productId).run();
+    return { success: true as const };
+  });
 
 interface AdminOrder {
   id: string;

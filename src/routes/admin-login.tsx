@@ -1,15 +1,9 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
 import { getSignedInUser } from "@/lib/auth.server";
 
-export const Route = createFileRoute("/admin-login")({
-  beforeLoad: async () => {
-    const user = await getSignedInUser();
-    if (user?.role === "admin") throw redirect({ to: "/admin" });
-  },
-  component: AdminLoginPage,
-});
+export const Route = createFileRoute("/admin-login")({ component: AdminLoginPage });
 
 function AdminLoginPage() {
   const [username, setUsername] = useState("");

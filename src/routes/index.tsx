@@ -416,7 +416,7 @@ function Shop() {
                 title="My account"
                 asChild
               >
-                <a href="/admin">
+                <a href="/admin-login">
                   <UserRound />
                 </a>
               </Button>

@@ -24,6 +24,7 @@ async function authHandler({ request }: { request: Request }) {
     trustedOrigins: [
       "https://youngboy-shop.fredrickowoeye8.workers.dev",
       "https://youngboy-shop.vercel.app",
+      "https://youngboy-never-broke-again.vercel.app",
       "https://nbayoungboy-addmin.vercel.app",
       "http://127.0.0.1:8787",
       "http://localhost:8787",
